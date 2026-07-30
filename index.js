@@ -40,7 +40,7 @@ app.get("/donors", (req, res) => {
 });
 
 app.post("/donors", (req, res) => {
-  const { name, phone, bloodType, location } = req.body;
+  const { name, phone, email, age, gender, lastDonation, bloodType, location } = req.body;
 
   if (!name || !bloodType || !location) {
     return res.status(400).json({
@@ -52,6 +52,10 @@ app.post("/donors", (req, res) => {
     id: donorIdCounter++,
     name,
     phone: phone || "Not provided",
+    email: email || "Not provided",
+    age: age || "Not provided",
+    gender: gender || "Not provided",
+    lastDonation: lastDonation || "Not provided",
     bloodType,
     location,
     registeredAt: new Date().toISOString(),
@@ -84,6 +88,10 @@ app.post("/requests", (req, res) => {
     id: d.id,
     name: d.name,
     phone: d.phone,
+    email: d.email,
+    age: d.age,
+    gender: d.gender,
+    lastDonation: d.lastDonation,
     bloodType: d.bloodType,
     location: d.location,
   }));
