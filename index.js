@@ -1,4 +1,6 @@
 const express = require("express");
+const fetch = require("node-fetch");
+require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -20,33 +22,53 @@ let requests = [];
 let donorIdCounter = 1;
 let requestIdCounter = 1;
 
-// Calculate AI match score for a donor
-function calculateMatchScore(donor, bloodTypeNeeded, location) {
-  let score = 0;
+// Real AI Match Score using Google Gemini API
+async function getAIMatchScore(donor, bloodTypeNeeded, location) {
+  const apiKey = process.env.GEMINI_API_KEY;
 
-  // Blood type match (50 points)
-  if (donor.bloodType === bloodTypeNeeded) {
-    score += 50;
+  // If no API key is found, fall back to a basic score so the app doesn't crash
+  if (!apiKey) return { score: 50, reason: "AI offline (No API Key)" };
+
+  const prompt = `
+    You are an AI medical assistant for a blood donation app.
+    Donor Blood Type: ${donor.bloodType}
+    Donor Location: ${donor.location}
+    Donor Reliability: ${donor.reliabilityScore || 50}%
+    Request Blood Type Needed: ${bloodTypeNeeded}
+    Request Location: ${location}
+    
+    Rate this donor's match for the request on a scale of 0 to 100.
+    Return ONLY a JSON object with two keys: "score" (a number) and "reason" (a short 5-8 word reason).
+    Example: {"score": 95, "reason": "Exact blood type and nearby location."}
+    `;
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      },
+    );
+
+    const data = await response.json();
+    let aiText = data.candidates[0].content.parts[0].text;
+
+    // Clean up the AI text to make sure it's valid JSON
+    aiText = aiText
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+    const parsed = JSON.parse(aiText);
+
+    return { score: parsed.score, reason: parsed.reason };
+  } catch (error) {
+    console.error("AI Error:", error);
+    return { score: 50, reason: "AI calculation error" };
   }
-
-  // Location proximity (30 points)
-  if (donor.location && location) {
-    if (donor.location.toLowerCase() === location.toLowerCase()) {
-      score += 30;
-    } else if (
-      donor.location.toLowerCase().includes(location.toLowerCase()) ||
-      location.toLowerCase().includes(donor.location.toLowerCase())
-    ) {
-      score += 15;
-    }
-  }
-
-  // Availability (20 points)
-  if (donor.isAvailable !== false) {
-    score += 20;
-  }
-
-  return score;
 }
 
 app.get("/", (req, res) => {
@@ -88,6 +110,7 @@ app.post("/donors", (req, res) => {
     lastDonation: lastDonation || "Not provided",
     bloodType,
     location,
+    reliabilityScore: Math.floor(Math.random() * 40) + 60, // Simulates a 60% - 100% score
     registeredAt: new Date().toISOString(),
   };
 
@@ -99,7 +122,7 @@ app.post("/donors", (req, res) => {
   });
 });
 
-app.post("/requests", (req, res) => {
+app.post("/requests", async (req, res) => {
   const { patientName, hospital, bloodTypeNeeded, urgency, location } =
     req.body;
 
@@ -113,19 +136,24 @@ app.post("/requests", (req, res) => {
     (donor) => donor.bloodType === bloodTypeNeeded,
   );
 
-  // Store full donor details instead of just IDs
-  const matchingDonorDetails = matchingDonors.map((d) => ({
-    id: d.id,
-    name: d.name,
-    phone: d.phone,
-    email: d.email,
-    age: d.age,
-    gender: d.gender,
-    lastDonation: d.lastDonation,
-    bloodType: d.bloodType,
-    location: d.location,
-    matchScore: calculateMatchScore(d, bloodTypeNeeded, location),
-  }));
+  // Use AI to score all matching donors
+  const matchingDonorDetails = await Promise.all(
+    matchingDonors.map(async (d) => {
+      const aiResult = await getAIMatchScore(d, bloodTypeNeeded, location);
+
+      return {
+        id: d.id,
+        name: d.name,
+        phone: d.phone,
+        bloodType: d.bloodType,
+        location: d.location,
+        matchScore: aiResult.score,
+        aiReason: aiResult.reason,
+        reliabilityScore: d.reliabilityScore,
+      };
+    }),
+  );
+
   // Sort donors by match score (highest first)
   matchingDonorDetails.sort((a, b) => b.matchScore - a.matchScore);
 
