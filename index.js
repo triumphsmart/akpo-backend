@@ -20,6 +20,35 @@ let requests = [];
 let donorIdCounter = 1;
 let requestIdCounter = 1;
 
+// Calculate AI match score for a donor
+function calculateMatchScore(donor, bloodTypeNeeded, location) {
+  let score = 0;
+
+  // Blood type match (50 points)
+  if (donor.bloodType === bloodTypeNeeded) {
+    score += 50;
+  }
+
+  // Location proximity (30 points)
+  if (donor.location && location) {
+    if (donor.location.toLowerCase() === location.toLowerCase()) {
+      score += 30;
+    } else if (
+      donor.location.toLowerCase().includes(location.toLowerCase()) ||
+      location.toLowerCase().includes(donor.location.toLowerCase())
+    ) {
+      score += 15;
+    }
+  }
+
+  // Availability (20 points)
+  if (donor.isAvailable !== false) {
+    score += 20;
+  }
+
+  return score;
+}
+
 app.get("/", (req, res) => {
   res.json({
     message: "Welcome to AKPO Blood Donor Network API",
@@ -40,7 +69,8 @@ app.get("/donors", (req, res) => {
 });
 
 app.post("/donors", (req, res) => {
-  const { name, phone, email, age, gender, lastDonation, bloodType, location } = req.body;
+  const { name, phone, email, age, gender, lastDonation, bloodType, location } =
+    req.body;
 
   if (!name || !bloodType || !location) {
     return res.status(400).json({
@@ -94,7 +124,10 @@ app.post("/requests", (req, res) => {
     lastDonation: d.lastDonation,
     bloodType: d.bloodType,
     location: d.location,
+    matchScore: calculateMatchScore(d, bloodTypeNeeded, location),
   }));
+  // Sort donors by match score (highest first)
+  matchingDonorDetails.sort((a, b) => b.matchScore - a.matchScore);
 
   const newRequest = {
     id: requestIdCounter++,
@@ -114,7 +147,7 @@ app.post("/requests", (req, res) => {
     message: "Blood request created successfully",
     request: newRequest,
     matchingDonorsCount: matchingDonors.length,
-    matchingDonors: matchingDonors,
+    matchingDonors: matchingDonorDetails,
   });
 });
 
